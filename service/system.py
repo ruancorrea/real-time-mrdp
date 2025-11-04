@@ -15,13 +15,14 @@ from service.enums import OrderStatus, EventType, VehicleStatus
 from service.monitor import Monitor
 
 class System:
-    def __init__(self, vehicles: list[Vehicle], depot_origin: np.array):
+    def __init__(self, vehicles: list[Vehicle], depot_origin: np.array, dispatch_delay_buffer_minutes: int = 5):
         self.simulation_time = None
         self.event_queue: list = []
         self.active_deliveries: Dict[str, Delivery] = {}
         self.vehicles: Dict[int, Vehicle] = {v.id: v for v in vehicles}
         self.depot_origin = depot_origin
         self.avg_speed_kmh = 50
+        self.dispatch_delay_buffer = timedelta(minutes=dispatch_delay_buffer_minutes)
         self.monitor = Monitor()
 
     def add_new_delivery(self, delivery: Delivery):
@@ -39,26 +40,6 @@ class System:
         event = Event(event_type, timestamp, delivery_id)
         heapq.heappush(self.event_queue, event)
         return event
-
-    def clustering(self):
-        deliveries = [e.delivery for _, _, e in self.events if e.state in ['C', 'R', 'D']]
-        points = np.array([[d.point.lng, d.point.lat] for d in deliveries])
-        weights = np.array([d.size for d in deliveries])
-        total_size = weights.sum()
-        vehicle_capacity = 100 * 0.9  # 90% da capacidade do veiculo
-        necessary_vehicles = math.ceil(total_size / vehicle_capacity)
-        n_clusters = necessary_vehicles
-        assign, centers = capacitated_kmeans(points, weights, n_clusters, vehicle_capacity)
-        clusters = defaultdict(list)
-        for idx, d in enumerate(deliveries):
-            clusters[assign[idx]].append(d)
-        return clusters, centers
-
-    def add_event(self, event: Event):
-        '''Adiciona um novo evento à fila de prioridade.'''
-        print('- Adicionando evento', event)
-        heapq.heappush(self.event_queue, (event.timestamp_dt, event.id, event))
-        self.notify(event)
 
     def process_events_due(self):
         while self.event_queue and self.event_queue[0].timestamp <= self.simulation_time:
@@ -83,16 +64,17 @@ class System:
     def _handle_order_created(self, event, delivery):
         print(f'[{self.simulation_time.strftime('%H:%M')}] ➡️ Evento: Pedido {delivery.id} foi criado.')
 
+
     def _handle_order_ready(self, event, delivery):
         print(f'[{self.simulation_time.strftime('%H:%M')}] ✅ Evento: Pedido {delivery.id} está pronto (às {delivery.preparation_dt.strftime('%H:%M')})!')
         delivery.status = OrderStatus.READY
 
 
     def _handle_pickup_deadline(self, event, delivery):
-        """
+        '''
         Este handler é acionado quando o tempo máximo de espera de um pedido é atingido.
         Ele não altera o estado do pedido, apenas registra o alerta e atualiza o monitor.
-        """
+        '''
         # A verificação garante que não estamos alertando sobre um pedido que já está a caminho ou foi entregue.
         if delivery.status not in [OrderStatus.DISPATCHED, OrderStatus.DELIVERED]:
             print(f"[{self.simulation_time.strftime('%H:%M')}] ❗ ALERTA DE ATRASO: Prazo do Pedido {delivery.id} ({delivery.time_dt.strftime('%H:%M')}) foi ultrapassado!")
@@ -113,17 +95,84 @@ class System:
         delivery.status = OrderStatus.DELIVERED
         self.monitor.total_deliveries_completed += 1
 
+
+    def _calculate_delayed_dispatch(self, asap_eval_dt: dict, node_map: dict, slack_usage_ratio: float = 0.5):
+        '''
+        Calcula um novo horário de despacho atrasado (JIT) com base na folga da rota.
+
+        Args:
+            asap_eval_dt (dict): O dicionário de resultados do BRKGA com tempos ASAP.
+            node_map (dict): Mapeamento de índice de nó para objeto Delivery.
+
+        Returns:
+            dict: Um novo dicionário de resultados com todos os tempos ajustados para o futuro.
+        '''
+        asap_start_time = asap_eval_dt["start_datetime"]
+        route_sequence = asap_eval_dt["sequence"] # Supondo que a sequência está no dict
+
+        # Encontrar a folga mínima (slack) na rota inteira
+        min_slack = timedelta(days=999) # Começa com um valor muito grande
+
+        for i, node_idx in enumerate(route_sequence):
+            delivery = node_map[node_idx]
+            deadline = delivery.time_dt
+
+            # Tempo de chegada no modo ASAP
+            asap_arrival_time = asap_eval_dt["arrivals_map"][node_idx]
+
+            # A folga para este pedido é a diferença entre o prazo e a chegada
+            current_slack = deadline - asap_arrival_time
+
+            if current_slack < min_slack:
+                min_slack = current_slack
+
+        # A folga máxima que podemos usar é a menor folga da rota, menos nosso buffer de segurança
+        usable_delay = (min_slack - self.dispatch_delay_buffer) * slack_usage_ratio
+
+        # Não podemos ter um atraso negativo
+        if usable_delay < timedelta(seconds=0):
+            usable_delay = timedelta(seconds=0)
+
+        # Se há um atraso útil, criamos um novo dicionário de resultados com tempos atualizados
+        if usable_delay > timedelta(seconds=0):
+            print(f"  -> Política JIT: Atrasando a rota em {usable_delay} para aumentar a chance de consolidação.")
+
+            new_eval_dt = asap_eval_dt.copy()
+            new_eval_dt["start_datetime"] = asap_start_time + usable_delay
+            new_eval_dt["return_depot"] = asap_eval_dt["return_depot"] + usable_delay
+
+            new_arrivals_map = {}
+            for node_idx, arrival_dt in asap_eval_dt["arrivals_map"].items():
+                new_arrivals_map[node_idx] = arrival_dt + usable_delay
+            new_eval_dt["arrivals_map"] = new_arrivals_map
+
+            return new_eval_dt
+        else:
+            print("  -> Política JIT: Nenhuma folga útil encontrada. Despachando ASAP.")
+            return asap_eval_dt
+
     def routing_decision_logic(self):
-        """
+        '''
         Orquestra a clusterização e roteirização para pedidos prontos.
         É chamado periodicamente pelo loop de simulação.
-        """
+        '''
         # 1. GATHER DATA: Coletar pedidos e veículos elegíveis
         ready_deliveries = [d for d in self.active_deliveries.values() if d.status == OrderStatus.READY]
         available_vehicles = [v for v in self.vehicles.values() if v.status == VehicleStatus.IDLE]
 
         if not ready_deliveries or not available_vehicles:
             return # Nada a fazer
+
+        urgent_orders = [
+            d for d in ready_deliveries
+            if d.time_dt - self.simulation_time < timedelta(minutes=10) # Ex: prazo em menos de 15 min
+        ]
+
+        if len(ready_deliveries) > 5 or len(urgent_orders) > 0:
+            print(f"[{self.simulation_time.strftime('%H:%M')}] MODO DE URGÊNCIA ATIVADO. Despachando ASAP.")
+            use_jit_policy = False
+        else:
+            use_jit_policy = True
 
         print(f"[{self.simulation_time.strftime('%H:%M')}] 🧠 Lógica de Roteamento: {len(ready_deliveries)} pedidos prontos e {len(available_vehicles)} veículos disponíveis.")
 
@@ -186,7 +235,7 @@ class System:
             depot_index = len(deliveries_in_cluster)
 
             # Chamar o BRKGA
-            seq, _, ev_dt = brkga_for_routing_with_depot(
+            seq, _, asap_eval_dt = brkga_for_routing_with_depot(
                 node_ids=node_ids,
                 travel_time=time_matrix,
                 P_dt_map=P_dt_map,
@@ -194,17 +243,25 @@ class System:
                 depot_index=depot_index
             )
 
+            asap_eval_dt["sequence"] = seq
+
+            if use_jit_policy:
+                jit_eval_dt = self._calculate_delayed_dispatch(asap_eval_dt, node_map)
+            else:
+                jit_eval_dt = asap_eval_dt
+
             # 5. UPDATE STATE: Aplicar os resultados da otimização ao sistema
-            print(f"  -> Rota definida para Veículo {vehicle.id}: Início às {ev_dt['start_datetime'].strftime('%H:%M')}, Retorno às {ev_dt['return_depot'].strftime('%H:%M')}")
+            #print(f"  -> Rota definida para Veículo {vehicle.id}: Início às {ev_dt['start_datetime'].strftime('%H:%M')}, Retorno às {ev_dt['return_depot'].strftime('%H:%M')}")
+            print(f"  -> Rota JIT definida para Veículo {vehicle.id}: Saída às {jit_eval_dt['start_datetime'].strftime('%H:%M')}, Retorno às {jit_eval_dt['return_depot'].strftime('%H:%M')}")
 
-            self.monitor.total_penalty_incurred += ev_dt["total_penalty"]
-            self.monitor.total_route_time_minutes += ev_dt["total_route_time"]
+            self.monitor.total_penalty_incurred += jit_eval_dt["total_penalty"]
+            self.monitor.total_route_time_minutes += jit_eval_dt["total_route_time"]
 
-            print(f"  -> Rota definida. Penalidade da rota: {ev_dt['total_penalty']}. Tempo da rota: {ev_dt['total_route_time']:.2f} min.")
+            print(f"  -> Rota definida. Penalidade da rota: {jit_eval_dt['total_penalty']}. Tempo da rota: {jit_eval_dt['total_route_time']:.2f} min.")
 
             # Atualizar o veículo
             vehicle.status = VehicleStatus.ON_ROUTE
-            vehicle.route_end_time = ev_dt['return_depot']
+            vehicle.route_end_time = jit_eval_dt['return_depot']
             vehicle.current_route = [node_map[node_idx].id for node_idx in seq]
 
             return_event = Event(EventType.VEHICLE_RETURN, vehicle.route_end_time, vehicle.id)
@@ -215,7 +272,7 @@ class System:
             # Atualizar cada pedido na rota
             for node_idx in seq:
                 delivery = node_map[node_idx]
-                expected_delivery_time = ev_dt['arrivals_map'][node_idx]
+                expected_delivery_time = jit_eval_dt['arrivals_map'][node_idx]
 
                 delivery.status = OrderStatus.DISPATCHED
                 delivery.assigned_vehicle_id = vehicle.id
