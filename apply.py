@@ -94,7 +94,6 @@ def process_instances(
 
     return days
 
-
 def get_delivery_for_time(deliveries: list):
     delivery_for_time = defaultdict(list)
 
@@ -120,30 +119,46 @@ if __name__ == "__main__":
 
     instances = get_instances(path_eval)
     data_base: str = '01/01/2025'
-    hours: int =18
-    minutes: int =0
-    days = process_instances(instances[:1], data_base, hours, minutes)
+    hours: int = 18
+    minutes: int = 0
+    all_deliveries_by_time = process_instances(instances[:1], data_base, hours, minutes)
     origin = np.array([-35.739118, -9.618276])
     system = System()
-    CURRENT_TIME = get_initial_time(data_base, hours, minutes)
-    CURRENT_MOMENT = get_initial_time(data_base, hours, minutes)
 
-    thread_eventos = threading.Thread(target=system.run, args=(update_time,), daemon=True)
-    thread_eventos.start()
-    end_date = CURRENT_MOMENT + timedelta(hours=10)
-    delivery_for_time = get_delivery_for_time(days[0])
-    while CURRENT_MOMENT < end_date:
-        if CURRENT_MOMENT in delivery_for_time:
-            for id, d in enumerate(delivery_for_time[CURRENT_MOMENT]):
-                event = Event(
-                    id=id,
-                    timestamp_dt=d.timestamp_dt,
-                    delivery=d,
-                    state='C'
+    simulation_start_time = get_initial_time(data_base, hours, minutes)
+    simulation_end_time = simulation_start_time + timedelta(hours=2)
+    simulation_time = simulation_start_time
+
+    print(f"Iniciando simulação de {simulation_start_time} até {simulation_end_time}")
+    delivery_for_time = get_delivery_for_time(all_deliveries_by_time[0])
+
+    while simulation_time <= simulation_end_time:
+        print(f"\n** Avançando relógio para: {simulation_time.strftime('%Y-%m-%d %H:%M')} **")
+
+        # 1. Verificação de novos pedidos (eventos externos)
+        if simulation_time in delivery_for_time:
+            print(f"Novos pedidos chegaram às {simulation_time.strftime('%H:%M')}")
+            for id, delivery_data in enumerate(delivery_for_time[simulation_time]):
+                new_event = Event(
+                    id=delivery_data.id, # Usar um ID único
+                    timestamp_dt=delivery_data.timestamp_dt,
+                    delivery=delivery_data,
+                    state='CREATED'
                 )
-                system.add_event(event, id)
-        CURRENT_MOMENT = CURRENT_MOMENT + timedelta(minutes=1)
+                system.add_event(new_event)
+
+        # 2. Processar eventos que estão na fila e já venceram
+        system.process_events_due_at(simulation_time)
+
+        # 3. Avançar o relógio da simulação
+        simulation_time += timedelta(minutes=1)
+
+        # Opcional: para desacelerar a saída no console e poder ler
+        # Remova ou comente esta linha para a simulação rodar na velocidade máxima
         time.sleep(1)
+
+    print("Simulação concluída.")
+
 
 '''
 STATES

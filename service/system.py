@@ -9,7 +9,7 @@ import heapq
 
 class System:
     def __init__(self):
-        self.events: list = []
+        self.event_queue: list = []
         self.deliveries: defaultdict = defaultdict(list)
 
     def clustering(self):
@@ -41,12 +41,30 @@ class System:
 
             #clusters, centers = self.clustering()
             print(f'Processando {len(events_process)} eventos em {now}')
-            time.sleep(0.5)
+            time.sleep(1.5)
 
     def notify(self, event: Event):
         print(f'Evento criado', event.delivery.id)
 
-    def add_event(self, event: Event, id: int):
+    def add_event(self, event: Event):
+        '''Adiciona um novo evento à fila de prioridade.'''
         print('- Adicionando evento', event)
-        heapq.heappush(self.events, (event.timestamp_dt, id, event))
+        heapq.heappush(self.event_queue, (event.timestamp_dt, event.id, event))
         self.notify(event)
+
+    def process_events_due_at(self, current_time: datetime):
+        '''Processa todos os eventos na fila cujo tempo já chegou ou passou.'''
+        events_to_process = []
+        # Enquanto a fila não estiver vazia E o evento no topo estiver no passado/presente
+        while self.event_queue and self.event_queue[0][0] <= current_time:
+            # Retira o evento com o menor timestamp
+            timestamp, event_id, event = heapq.heappop(self.event_queue)
+            events_to_process.append(event)
+
+        if events_to_process:
+            print(f'--- [Processando em {current_time.strftime('%H:%M')}] ---')
+            print(f'  Encontrados {len(events_to_process)} eventos para processar:')
+            for event in events_to_process:
+                print(f'    -> Processando Evento: Pedido {event.delivery.id} criado às {event.timestamp_dt.strftime('%H:%M')}')
+            # Aqui entraria a lógica de roteamento (clustering, atribuição, etc.)
+            print('----------------------------------')
