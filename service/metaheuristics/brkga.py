@@ -13,7 +13,7 @@ except Exception:
 # ---------------------------
 # Helpers para datetimes
 # ---------------------------
-DEFAULT_TZ_NAME = "America/Maceio"  # ajuste se quiser outra timezone
+DEFAULT_TZ_NAME = "America/Sao_Paulo"  # ajuste se quiser outra timezone
 
 def to_timestamp_seconds(dt, assume_tz_name=DEFAULT_TZ_NAME):
     """Converte datetime -> timestamp (float seconds since epoch).

@@ -1,14 +1,15 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import (
     List,
     Union,
-    Optional
+    Optional,
 )
 from dacite import from_dict
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
 
+from service.enums import OrderStatus, EventType, VehicleStatus
 
 class JSONDataclassMixin:
     '''Mixin for adding JSON file capabilities to Python dataclasses.'''
@@ -47,31 +48,31 @@ class Delivery:
     '''A delivery request.'''
 
     id: str
-    '''Unique id.'''
-
     point: Point
-    '''Delivery location.'''
-
     size: int
-    '''Size it occupies in the vehicle (considered 1-D for simplicity).'''
-
     preparation: int
-    '''Preparation time of a delivery.'''
-
     time: int
-    '''Delivery time of a delivery.'''
-
     timestamp: int
-    '''Record of the moment the order is placed'''
 
     timestamp_dt: Optional[datetime] = None
-    '''Record of the moment the order is placed'''
-
     preparation_dt: Optional[datetime] = None
-    '''Record of the moment the order is placed'''
-
     time_dt: Optional[datetime] = None
-    '''Record of the moment the order is placed'''
+
+    status: OrderStatus = field(default=OrderStatus.PENDING, compare=False, hash=False)
+    dispatch_event_id: Optional[int] = field(default=None, compare=False, hash=False)
+
+    def __post_init__(self):
+        '''Calcula os campos datetime se eles não forem fornecidos.'''
+        if self.timestamp_dt is None and self.timestamp is not None:
+            self.timestamp_dt = datetime.fromtimestamp(self.timestamp)
+
+        # Lógica crucial: calcular os datetimes a partir das durações
+        if self.timestamp_dt and self.preparation_dt is None:
+            self.preparation_dt = self.timestamp_dt + timedelta(minutes=self.preparation)
+
+        if self.preparation_dt and self.time_dt is None:
+            # 'time' representa o tempo limite APÓS o pedido ficar pronto
+            self.time_dt = self.preparation_dt + timedelta(minutes=self.time)
 
 @dataclass
 class CVRPInstance(JSONDataclassMixin):
@@ -123,13 +124,15 @@ class CVRPSolution(JSONDataclassMixin):
 
 @dataclass
 class Vehicle:
+    id: int
     capacity: int
+    status: VehicleStatus = VehicleStatus.IDLE
+    current_route: list = field(default_factory=list) # Lista de IDs de Delivery
+    route_end_time: Optional[datetime] = None # Quando o veículo volta a ficar IDLE
 
-    @classmethod
-    def get_baseline(cls):
-        return cls(
-            capacity= 0,
-        )
+_event_counter = 0
+def get_next_event_id():
+    global _event_counter; _event_counter += 1; return _event_counter
 
 @dataclass
 class Event:
@@ -137,3 +140,12 @@ class Event:
     timestamp_dt: datetime
     delivery: Delivery
     state: str = 'created'
+
+class Event:
+    def __init__(self, event_type: EventType, timestamp: datetime, delivery_id: str):
+        self.id = get_next_event_id()
+        self.event_type = event_type
+        self.timestamp = timestamp
+        self.delivery_id = delivery_id
+    def __lt__(self, other): return self.timestamp < other.timestamp
+    def __repr__(self): return f"Event(id={self.id}, type={self.event_type.name}, delivery_id={self.delivery_id}, time={self.timestamp.strftime('%H:%M')})"
