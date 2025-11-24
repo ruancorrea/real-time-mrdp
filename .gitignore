@@ -1,4 +1,9 @@
-venv
+# Ambiente Virtual
+venv/
+
+# Arquivos de dados e cache
 dataset_maceio.zip
-prompt.md
 __pycache__/
+
+# Arquivos de documentação local/rascunho
+prompt.md
