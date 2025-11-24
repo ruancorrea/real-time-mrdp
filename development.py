@@ -12,6 +12,7 @@ except ImportError:
     # ou usar a biblioteca 'pytz'
     ZoneInfo = None
 # Importe suas classes System, Vehicle, Delivery...
+from service.config import SimulationConfig, ClusteringAlgorithm, RoutingAlgorithm
 
 # Defina o fuso horário que será usado em toda a simulação
 # Deve ser o mesmo usado no seu módulo de rotas
@@ -53,8 +54,17 @@ if __name__ == "__main__":
             break
        incoming_deliveries_schedule[delivery.timestamp_dt].append(delivery)
 
+    config = SimulationConfig(
+        clustering_algo=ClusteringAlgorithm.CKMEANS, 
+        routing_algo=RoutingAlgorithm.BRKGA
+    )
+
     # --- Execução ---
-    system = System(vehicles=vehicles, depot_origin=origin)
+    system = System(
+        vehicles=vehicles, 
+        depot_origin=origin,
+        config=config
+    )
     # O loop de simulação continua o mesmo! Apenas a fonte dos dados mudou.
     final_monitor_results = system.run_simulation(simulation_start_time, simulation_end_time, incoming_deliveries_schedule)
 

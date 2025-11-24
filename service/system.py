@@ -13,9 +13,22 @@ from typing import Dict
 from service.structures import Delivery, Vehicle
 from service.enums import OrderStatus, EventType, VehicleStatus
 from service.monitor import Monitor
+from service.config import (
+    SimulationConfig,
+    ClusteringAlgorithm,
+    RoutingAlgorithm,
+    CombinedAlgorithm
+)
+from service.factory import get_strategies
 
 class System:
-    def __init__(self, vehicles: list[Vehicle], depot_origin: np.array, dispatch_delay_buffer_minutes: int = 5):
+    def __init__(
+        self, 
+        config: SimulationConfig, 
+        vehicles: list[Vehicle], 
+        depot_origin: np.array, 
+        dispatch_delay_buffer_minutes: int = 5
+    ):
         self.simulation_time = None
         self.event_queue: list = []
         self.active_deliveries: Dict[str, Delivery] = {}
@@ -24,6 +37,9 @@ class System:
         self.avg_speed_kmh = 50
         self.dispatch_delay_buffer = timedelta(minutes=dispatch_delay_buffer_minutes)
         self.monitor = Monitor()
+        self.config = config
+        self.clustering_strategy, self.routing_strategy = get_strategies(config)
+
 
     def add_new_delivery(self, delivery: Delivery):
         '''Adiciona uma nova entrega e seus eventos iniciais ao sistema.'''
@@ -148,102 +164,52 @@ class System:
 
             return new_eval_dt
         else:
-            print("  -> Política JIT: Nenhuma folga útil encontrada. Despachando ASAP.")
+            print("-> Política JIT: Nenhuma folga útil encontrada. Despachando ASAP.")
             return asap_eval_dt
 
     def routing_decision_logic(self):
         '''
         Orquestra a clusterização e roteirização para pedidos prontos.
-        É chamado periodicamente pelo loop de simulação.
+        Delega a lógica para as estratégias configuradas.
         '''
         # 1. GATHER DATA: Coletar pedidos e veículos elegíveis
         ready_deliveries = [d for d in self.active_deliveries.values() if d.status == OrderStatus.READY]
         available_vehicles = [v for v in self.vehicles.values() if v.status == VehicleStatus.IDLE]
 
         if not ready_deliveries or not available_vehicles:
-            return # Nada a fazer
+            return
 
         urgent_orders = [
             d for d in ready_deliveries
             if d.time_dt - self.simulation_time < timedelta(minutes=10) # Ex: prazo em menos de 15 min
         ]
 
+        use_jit_policy = True
         if len(ready_deliveries) > 5 or len(urgent_orders) > 0:
             print(f"[{self.simulation_time.strftime('%H:%M')}] MODO DE URGÊNCIA ATIVADO. Despachando ASAP.")
-            use_jit_policy = False
-        else:
-            use_jit_policy = True
+            use_jit_policy = False            
 
-        print(f"[{self.simulation_time.strftime('%H:%M')}] 🧠 Lógica de Roteamento: {len(ready_deliveries)} pedidos prontos e {len(available_vehicles)} veículos disponíveis.")
+        print(f"[{self.simulation_time.strftime('%H:%M')}] Lógica de Roteamento: {len(ready_deliveries)} pedidos prontos e {len(available_vehicles)} veículos disponíveis.")
 
-        # 2. PREPARE INPUTS para a otimização
-        # Mapeia ID do Delivery para um índice numérico (0, 1, 2...)
-        delivery_map = {i: d for i, d in enumerate(ready_deliveries)}
-        id_map = {d.id: i for i, d in delivery_map.items()}
+        # 2. STAGE 1: CLUSTERING
+        deliveries_by_vehicle = self.clustering_strategy.cluster(
+            ready_deliveries, available_vehicles, self.depot_origin
+        )
 
-        points = np.array([[d.point.lng, d.point.lat] for d in ready_deliveries])
+        # 3. STAGE 2: ROUTING
+        # Nota: metaheuristica só retorna o plano ASAP. A lógica JIT é uma decisão de sistema.
+        asap_routes_details = self.routing_strategy.generate_routes(
+            deliveries_by_vehicle, self.depot_origin, self.avg_speed_kmh
+        )
 
-        weights = np.array([d.size for d in ready_deliveries])
+        # 4. PROCESS RESULTS & UPDATE STATE (Permanece no System)
+        for vehicle_id, asap_eval_dt in asap_routes_details.items():
+            if not asap_eval_dt: continue
 
-        # A capacidade pode ser a média ou um valor fixo
-        vehicle_capacity = int(np.mean([v.capacity for v in available_vehicles]))
-
-        # 3. STAGE 1: CLUSTERING (K-Means com Capacidade)
-        n_clusters = len(available_vehicles)
-
-        # O K-Means precisa de pelo menos tantos pontos quanto clusters
-        if len(ready_deliveries) < n_clusters:
-            n_clusters = len(ready_deliveries)
-
-        if n_clusters == 0: return
-
-        assignments, _ = capacitated_kmeans(points, weights, n_clusters, vehicle_capacity)
-
-        # Agrupa os pedidos por cluster
-        clusters = defaultdict(list)
-        for delivery_idx, cluster_id in enumerate(assignments):
-            clusters[cluster_id].append(delivery_map[delivery_idx])
-
-        print(f"  -> Clusterização encontrou {len(clusters)} grupos de entrega.")
-
-        # 4. STAGE 2: ROUTING (BRKGA para cada cluster)
-        vehicles_to_dispatch = iter(available_vehicles) # Iterador para pegar veículos
-
-        for cluster_id, deliveries_in_cluster in clusters.items():
-            try:
-                vehicle = next(vehicles_to_dispatch)
-            except StopIteration:
-                break # Acabaram os veículos disponíveis
-
-            if not deliveries_in_cluster: continue
-
-            print(f"  -> Roteirizando Cluster {cluster_id} para Veículo {vehicle.id} com {len(deliveries_in_cluster)} pedidos.")
-
-            # Preparar inputs para o BRKGA
-            # Mapeia os deliveries do cluster para índices locais (0, 1, ...)
+            vehicle = self.vehicles[vehicle_id]
+            deliveries_in_cluster = deliveries_by_vehicle.get(vehicle_id, [])
             node_map = {i: d for i, d in enumerate(deliveries_in_cluster)}
-            node_ids = list(node_map.keys())
-
-            cluster_points = np.array([self.depot_origin] + [[d.point.lng, d.point.lat] for d in deliveries_in_cluster])
-            distance_matrix = get_distance_matrix(cluster_points)
-            time_matrix = get_time_matrix(distance_matrix, self.avg_speed_kmh)
-
-            P_dt_map = {i: d.preparation_dt for i, d in node_map.items()}
-            T_dt_map = {i: d.time_dt for i, d in node_map.items()}
-
-            # O depósito é o último índice na matriz de tempo
-            depot_index = len(deliveries_in_cluster)
-
-            # Chamar o BRKGA
-            seq, _, asap_eval_dt = brkga_for_routing_with_depot(
-                node_ids=node_ids,
-                travel_time=time_matrix,
-                P_dt_map=P_dt_map,
-                T_dt_map=T_dt_map,
-                depot_index=depot_index
-            )
-
-            asap_eval_dt["sequence"] = seq
+            seq = asap_eval_dt["sequence"]
 
             if use_jit_policy:
                 jit_eval_dt = self._calculate_delayed_dispatch(asap_eval_dt, node_map)
@@ -277,7 +243,6 @@ class System:
                 delivery.status = OrderStatus.DISPATCHED
                 delivery.assigned_vehicle_id = vehicle.id
 
-                # A MÁGICA ACONTECE AQUI: Agendamos o evento de entrega para o futuro
                 self._schedule_event(EventType.EXPECTED_DELIVERY, expected_delivery_time, delivery.id)
 
                 print(f"    - Pedido {delivery.id} despachado. Entrega esperada: {expected_delivery_time.strftime('%H:%M')}")
