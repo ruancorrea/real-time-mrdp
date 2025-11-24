@@ -55,22 +55,25 @@ if __name__ == "__main__":
        incoming_deliveries_schedule[delivery.timestamp_dt].append(delivery)
 
     config = SimulationConfig(
-        clustering_algo=ClusteringAlgorithm.CKMEANS, 
+        clustering_algo=ClusteringAlgorithm.CKMEANS,
         routing_algo=RoutingAlgorithm.BRKGA
     )
+    '''
+    config = SimulationConfig(
+        clustering_algo=ClusteringAlgorithm.GREEDY,
+        routing_algo=RoutingAlgorithm.GREEDY
+    )
+    '''
 
     # --- Execução ---
     system = System(
-        vehicles=vehicles, 
+        vehicles=vehicles,
         depot_origin=origin,
         config=config
     )
-    # O loop de simulação continua o mesmo! Apenas a fonte dos dados mudou.
-    final_monitor_results = system.run_simulation(simulation_start_time, simulation_end_time, incoming_deliveries_schedule)
+    final_monitor_results = system.run_simulation(simulation_start_time, simulation_end_time + timedelta(hours=5), incoming_deliveries_schedule)
 
     print("\n================== RELATÓRIO FINAL DA SIMULAÇÃO ==================")
-    # A exibição final já é feita dentro de run_simulation, mas podemos fazer de novo
-    # ou usar os dados para gerar gráficos, salvar em um arquivo, etc.
     final_monitor_results.display()
 
     avg_penalty = final_monitor_results.get_average_penalty_per_delivery()

@@ -23,10 +23,10 @@ from service.factory import get_strategies
 
 class System:
     def __init__(
-        self, 
-        config: SimulationConfig, 
-        vehicles: list[Vehicle], 
-        depot_origin: np.array, 
+        self,
+        config: SimulationConfig,
+        vehicles: list[Vehicle],
+        depot_origin: np.array,
         dispatch_delay_buffer_minutes: int = 5
     ):
         self.simulation_time = None
@@ -44,7 +44,7 @@ class System:
     def add_new_delivery(self, delivery: Delivery):
         '''Adiciona uma nova entrega e seus eventos iniciais ao sistema.'''
         self.active_deliveries[delivery.id] = delivery
-        print(f'[{delivery.timestamp_dt.strftime('%H:%M')}] 🍽️ Nova Entrega Recebida: id={delivery.id}')
+        print(f'[{delivery.timestamp_dt.strftime('%H:%M')}] Nova Entrega Recebida: id={delivery.id}')
 
         # Agenda os eventos usando os campos _dt da classe Delivery
         self._schedule_event(EventType.ORDER_CREATED, delivery.timestamp_dt, delivery.id)
@@ -78,11 +78,11 @@ class System:
      # --- Handlers de Eventos (usando 'delivery' em vez de 'order') ---
 
     def _handle_order_created(self, event, delivery):
-        print(f'[{self.simulation_time.strftime('%H:%M')}] ➡️ Evento: Pedido {delivery.id} foi criado.')
+        print(f'[{self.simulation_time.strftime('%H:%M')}] Evento: Pedido {delivery.id} foi criado.')
 
 
     def _handle_order_ready(self, event, delivery):
-        print(f'[{self.simulation_time.strftime('%H:%M')}] ✅ Evento: Pedido {delivery.id} está pronto (às {delivery.preparation_dt.strftime('%H:%M')})!')
+        print(f'[{self.simulation_time.strftime('%H:%M')}] Evento: Pedido {delivery.id} está pronto (às {delivery.preparation_dt.strftime('%H:%M')})!')
         delivery.status = OrderStatus.READY
 
 
@@ -93,21 +93,21 @@ class System:
         '''
         # A verificação garante que não estamos alertando sobre um pedido que já está a caminho ou foi entregue.
         if delivery.status not in [OrderStatus.DISPATCHED, OrderStatus.DELIVERED]:
-            print(f"[{self.simulation_time.strftime('%H:%M')}] ❗ ALERTA DE ATRASO: Prazo do Pedido {delivery.id} ({delivery.time_dt.strftime('%H:%M')}) foi ultrapassado!")
+            print(f"[{self.simulation_time.strftime('%H:%M')}] ALERTA DE ATRASO: Prazo do Pedido {delivery.id} ({delivery.time_dt.strftime('%H:%M')}) foi ultrapassado!")
             if not hasattr(delivery, 'is_marked_late'):
                 self.monitor.total_deliveries_late += 1
                 delivery.is_marked_late = True
 
 
     def _handle_vehicle_return(self, event, vehicle):
-        print(f"[{self.simulation_time.strftime('%H:%M')}] 🚐 Evento: Veículo {vehicle.id} retornou ao depósito.")
+        print(f"[{self.simulation_time.strftime('%H:%M')}] Evento: Veículo {vehicle.id} retornou ao depósito.")
         vehicle.status = VehicleStatus.IDLE
         vehicle.current_route = []
         vehicle.route_end_time = None
 
     def _handle_expected_delivery(self, event, delivery):
         # Removemos a lógica de liberar o veículo daqui, pois agora é um evento separado.
-        print(f"[{self.simulation_time.strftime('%H:%M')}] ✅ ENTREGA: Pedido {delivery.id} entregue.")
+        print(f"[{self.simulation_time.strftime('%H:%M')}] ENTREGA: Pedido {delivery.id} entregue.")
         delivery.status = OrderStatus.DELIVERED
         self.monitor.total_deliveries_completed += 1
 
@@ -187,7 +187,7 @@ class System:
         use_jit_policy = True
         if len(ready_deliveries) > 5 or len(urgent_orders) > 0:
             print(f"[{self.simulation_time.strftime('%H:%M')}] MODO DE URGÊNCIA ATIVADO. Despachando ASAP.")
-            use_jit_policy = False            
+            use_jit_policy = False
 
         print(f"[{self.simulation_time.strftime('%H:%M')}] Lógica de Roteamento: {len(ready_deliveries)} pedidos prontos e {len(available_vehicles)} veículos disponíveis.")
 

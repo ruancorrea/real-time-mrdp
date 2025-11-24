@@ -1,6 +1,5 @@
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass
 
-# Pode ser no mesmo arquivo do System ou em um arquivo de estruturas separado
 @dataclass
 class Monitor:
     total_deliveries_created: int = 0
@@ -16,7 +15,7 @@ class Monitor:
 
     def display(self):
         """Imprime um resumo formatado do painel."""
-        print("\n--- 📊 Painel de Monitoramento do Administrador ---")
+        print("\n--- Painel de Monitoramento do Administrador ---")
         print(f"  Pedidos Criados:          {self.total_deliveries_created}")
         print(f"  Pedidos Completados:      {self.total_deliveries_completed}")
         print(f"  Pedidos Atrasados (Prazo Estourado): {self.total_deliveries_late}")
