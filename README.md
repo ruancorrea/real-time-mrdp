@@ -101,6 +101,29 @@ Este módulo implementa o BRKGA, uma meta-heurística poderosa para problemas de
     3.  **Seleção**: O pedido com o menor custo de inserção é adicionado à rota na sua melhor posição.
     4.  **Repetição**: O processo se repete até que todos os pedidos estejam na rota.
 
+### `clustering/ckmeans.py` - Clusteração usando K-Means com Capacidade
+
+Este módulo implementa uma versão do K-Means que respeita a restrição de capacidade dos clusters (veículos). É um algoritmo iterativo que alterna entre atribuição de pontos e atualização de centróides.
+
+-   **`capacitated_kmeans(...)`**: A função principal.
+    1.  **Inicialização**: Utiliza o K-Means++ padrão (`sklearn.cluster.KMeans`) para encontrar um conjunto inicial de centróides.
+    2.  **Loop Iterativo**:
+        -   **Etapa de Atribuição**: Esta é a parte crucial. Em vez de simplesmente atribuir cada ponto ao centróide mais próximo (como no K-Means padrão), ele resolve um Problema de Programação Inteira Mista (MIP) através da função `capacitated_assignment_mip`. O MIP garante que a atribuição minimize a distância total aos centróides, sujeito a duas restrições:
+            1.  Cada ponto (entrega) deve ser atribuído a exatamente um cluster (veículo).
+            2.  A soma dos "pesos" (tamanho dos pedidos) em cada cluster não pode exceder a capacidade do veículo.
+        -   **Etapa de Atualização**: Após a atribuição, os centróides de cada cluster são recalculados como a média ponderada (pelo tamanho do pedido) das coordenadas dos pontos que foram atribuídos a ele.
+    3.  **Convergência**: O loop continua até que a mudança na posição dos centróides entre iterações seja menor que uma tolerância (`tol`) ou o número máximo de iterações (`max_iters`) seja atingido.
+
+### `heuristics/greedy_clustering.py` - Clusterização Gulosa Sequencial
+
+Implementa uma heurística de clusterização simples e rápida, baseada em uma lógica gulosa.
+
+-   **`sequential_assignment_heuristic(...)`**:
+    1.  **Ordenação**: Primeiro, todas as entregas pendentes são ordenadas em ordem **decrescente** de sua distância até o depósito. A intuição é que as entregas mais distantes são mais restritivas e, portanto, devem ser alocadas primeiro para garantir que encontrem um veículo.
+    2.  **Atribuição Sequencial**: O algoritmo itera sobre a lista ordenada de entregas. Para cada entrega, ele percorre a lista de veículos disponíveis.
+    3.  **Primeiro Encaixe (First Fit)**: A entrega é atribuída ao **primeiro** veículo na lista que possui capacidade restante suficiente para acomodá-la.
+    4.  **Finalização**: Uma vez que uma entrega é atribuída, o algoritmo passa para a próxima entrega. Se uma entrega não couber em nenhum veículo, ela é efetivamente ignorada e permanecerá pendente para a próxima rodada de roteirização.
+
 ## 4. Casos de Uso / Exemplos
 
 O principal caso de uso é a execução de uma simulação. Isso é feito externamente ao módulo `service`, mas a interação se daria da seguinte forma:
