@@ -1,6 +1,4 @@
 venv
 dataset_maceio.zip
-__pycache__
-
-teste.py
-prompt
+prompt.md
+__pycache__/
