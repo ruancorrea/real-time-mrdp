@@ -33,6 +33,23 @@ class RoutingStrategy(ABC):
         '''
         pass
 
+class HybridStrategy(ABC):
+    @abstractmethod
+    def generate_solution(
+        self,
+        deliveries: List[Delivery],
+        vehicles: List[Vehicle],
+        depot_origin: np.array,
+        avg_speed_kmh: int
+    ) -> Dict[int, Dict[str, Any]]:
+        '''
+        Recebe todas as entregas e veículos elegíveis e retorna um dicionário
+        mapeando o ID do veículo para os detalhes da rota otimizada.
+        Esta estratégia é responsável por atribuir e roteirizar em uma única etapa.
+        '''
+        pass
+
+
 
 # --- CLUSTERING ---
 
@@ -125,6 +142,7 @@ class BRKGARouting(RoutingStrategy):
                 depot_index=depot_index
             )
             asap_eval_dt["sequence"] = seq
+            asap_eval_dt["node_map"] = node_map
             routes_details[vehicle_id] = asap_eval_dt
 
         return routes_details
@@ -142,6 +160,27 @@ class GreedyRouting(RoutingStrategy):
         for vehicle_id, deliveries in deliveries_by_vehicle.items():
             if not deliveries: continue
             route_details = cheapest_insertion_heuristic(deliveries, depot_origin, avg_speed_kmh)
+            if route_details:
+                # O `cheapest_insertion_heuristic` não retorna o node_map, então criamos aqui.
+                # O `node_map` da heurística é {0: entrega_A, 1: entrega_B, ...}
+                route_details["node_map"] = {i: d for i, d in enumerate(deliveries)}
             routes_details[vehicle_id] = route_details
 
         return routes_details
+
+
+# --- HYBRID ---
+
+from service.heuristics.greedy_hybrid import GreedyHybridStrategy as GreedyHybridHeuristic
+
+class GreedyHybrid(HybridStrategy):
+    def generate_solution(
+        self,
+        deliveries: List[Delivery],
+        vehicles: List[Vehicle],
+        depot_origin: np.array,
+        avg_speed_kmh: int
+    ) -> Dict[int, Dict[str, Any]]:
+        print("  -> Usando Estratégia Híbrida: Greedy Insertion")
+        solver = GreedyHybridHeuristic()
+        return solver.generate_solution(deliveries, vehicles, depot_origin, avg_speed_kmh)

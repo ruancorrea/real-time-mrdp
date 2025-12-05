@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from service.structures import Event
 from collections import defaultdict
 import numpy as np
-import math
+
 import time
 import heapq
 
@@ -17,7 +17,7 @@ from service.config import (
     SimulationConfig,
     ClusteringAlgorithm,
     RoutingAlgorithm,
-    CombinedAlgorithm
+    HybridAlgorithm
 )
 from service.factory import get_strategies
 
@@ -38,7 +38,7 @@ class System:
         self.dispatch_delay_buffer = timedelta(minutes=dispatch_delay_buffer_minutes)
         self.monitor = Monitor()
         self.config = config
-        self.clustering_strategy, self.routing_strategy = get_strategies(config)
+        self.clustering_strategy, self.routing_strategy, self.hybrid_strategy = get_strategies(config)
 
 
     def add_new_delivery(self, delivery: Delivery):
@@ -191,24 +191,36 @@ class System:
 
         print(f"[{self.simulation_time.strftime('%H:%M')}] Lógica de Roteamento: {len(ready_deliveries)} pedidos prontos e {len(available_vehicles)} veículos disponíveis.")
 
-        # 2. STAGE 1: CLUSTERING
-        deliveries_by_vehicle = self.clustering_strategy.cluster(
-            ready_deliveries, available_vehicles, self.depot_origin
-        )
+        asap_routes_details = {}
+        deliveries_by_vehicle = {}
 
-        # 3. STAGE 2: ROUTING
-        # Nota: metaheuristica só retorna o plano ASAP. A lógica JIT é uma decisão de sistema.
-        asap_routes_details = self.routing_strategy.generate_routes(
-            deliveries_by_vehicle, self.depot_origin, self.avg_speed_kmh
-        )
+        if self.hybrid_strategy:
+            # Abordagem Híbrida (Etapa Única)
+            asap_routes_details = self.hybrid_strategy.generate_solution(
+                ready_deliveries, available_vehicles, self.depot_origin, self.avg_speed_kmh
+            )
+            # Para a lógica JIT, precisamos reconstruir o 'deliveries_by_vehicle'
+            # a partir dos resultados da rota.
+            # (Esta parte pode precisar de ajuste dependendo do retorno do seu algoritmo híbrido)
+
+        elif self.clustering_strategy and self.routing_strategy:
+            # Abordagem de Duas Etapas
+            # 2. STAGE 1: CLUSTERING
+            deliveries_by_vehicle = self.clustering_strategy.cluster(
+                ready_deliveries, available_vehicles, self.depot_origin
+            )
+            # 3. STAGE 2: ROUTING
+            asap_routes_details = self.routing_strategy.generate_routes(
+                deliveries_by_vehicle, self.depot_origin, self.avg_speed_kmh
+            )
 
         # 4. PROCESS RESULTS & UPDATE STATE (Permanece no System)
         for vehicle_id, asap_eval_dt in asap_routes_details.items():
             if not asap_eval_dt: continue
 
             vehicle = self.vehicles[vehicle_id]
-            deliveries_in_cluster = deliveries_by_vehicle.get(vehicle_id, [])
-            node_map = {i: d for i, d in enumerate(deliveries_in_cluster)}
+            # O mapa de nós e a sequência devem vir do resultado da roteirização
+            node_map = asap_eval_dt["node_map"]
             seq = asap_eval_dt["sequence"]
 
             if use_jit_policy:

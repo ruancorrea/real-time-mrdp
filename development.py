@@ -12,7 +12,7 @@ except ImportError:
     # ou usar a biblioteca 'pytz'
     ZoneInfo = None
 # Importe suas classes System, Vehicle, Delivery...
-from service.config import SimulationConfig, ClusteringAlgorithm, RoutingAlgorithm
+from service.config import SimulationConfig, ClusteringAlgorithm, RoutingAlgorithm, HybridAlgorithm
 
 # Defina o fuso horário que será usado em toda a simulação
 # Deve ser o mesmo usado no seu módulo de rotas
@@ -54,16 +54,21 @@ if __name__ == "__main__":
             break
        incoming_deliveries_schedule[delivery.timestamp_dt].append(delivery)
 
+    '''
     config = SimulationConfig(
         clustering_algo=ClusteringAlgorithm.CKMEANS,
         routing_algo=RoutingAlgorithm.BRKGA
     )
+    '''
+
     '''
     config = SimulationConfig(
         clustering_algo=ClusteringAlgorithm.GREEDY,
         routing_algo=RoutingAlgorithm.GREEDY
     )
     '''
+
+    config = SimulationConfig(hybrid_algo=HybridAlgorithm.GREEDY_INSERTION)
 
     # --- Execução ---
     system = System(
@@ -74,6 +79,7 @@ if __name__ == "__main__":
     final_monitor_results = system.run_simulation(simulation_start_time, simulation_end_time + timedelta(hours=5), incoming_deliveries_schedule)
 
     print("\n================== RELATÓRIO FINAL DA SIMULAÇÃO ==================")
+    print('CONFIGURAÇÃO:', config)
     final_monitor_results.display()
 
     avg_penalty = final_monitor_results.get_average_penalty_per_delivery()

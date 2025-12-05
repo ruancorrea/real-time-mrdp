@@ -4,7 +4,7 @@
 
 Este projeto implementa um sistema de simulação para otimização de rotas de entrega em tempo real, projetado para resolver o Problema de Roteamento de Entregas de Refeições em Tempo Real (do inglês, *Real-Time Meal Delivery Routing Problem* - RTMRDP). O núcleo do sistema, localizado no diretório `service`, é responsável por receber pedidos de entrega, agrupá-los (clusterização), definir as melhores rotas para uma frota de veículos (roteirização) e simular o processo de despacho e entrega.
 
-O objetivo principal é minimizar os custos operacionais, que são representados por uma combinação de tempo total de rota e penalidades por atraso na entrega. O sistema é flexível, permitindo a seleção de diferentes algoritmos de clusterização e roteirização através de um arquivo de configuração, facilitando a comparação de estratégias.
+O objetivo principal é minimizar os custos operacionais, que são representados por uma combinação de tempo total de rota e penalidades por atraso na entrega. O sistema é flexível, permitindo a seleção de diferentes algoritmos de clusterização e roteirização através de um arquivo de configuração, facilitando a comparação de estratégias. Além das abordagens em duas etapas (clusterização e depois roteirização), o sistema também suporta **estratégias híbridas** que resolvem ambos os problemas simultaneamente.
 
 ## 2. Arquitetura e Componentes
 
@@ -19,45 +19,49 @@ graph TD
     C --> D[Strategy Factory];
     D --> E{Clustering Strategy};
     D --> F{Routing Strategy};
+    D --> G{Hybrid Strategy};
     E --> E1[CKMeansClustering];
     E --> E2[GreedyClustering];
     F --> F1[BRKGARouting];
     F --> F2[GreedyRouting];
-    E1 --> G[ckmeans.py];
-    E2 --> H[greedy_clustering.py];
-    F1 --> I[brkga.py];
-    F2 --> J[greedy_routing.py];
-    A --> K[Monitor];
-    A --> L[Data Structures];
+    G --> G1[GreedyHybrid];
+    E1 --> H[ckmeans.py];
+    E2 --> I[greedy_clustering.py];
+    F1 --> J[brkga.py];
+    F2 --> K[greedy_routing.py];
+    G1 --> L[greedy_hybrid.py];
+    A --> M[Monitor];
+    A --> N[Data Structures];
 
     subgraph "Algoritmos"
-        G; H; I; J;
+        H; I; J; K; L;
     end
 
     subgraph "Configuração e Estratégias"
-        D; E; F; E1; E2; F1; F2;
+        D; E; F; G; E1; E2; F1; F2; G1;
     end
 
     subgraph "Core"
-        A; B; C; K; L;
+        A; B; C; M; N;
     end
 ```
 
 ### Principais Módulos
 
--   **`system.py`**: O coração do simulador. A classe `System` gerencia a fila de eventos (usando `heapq`), o tempo da simulação, o estado dos pedidos e veículos. Ela orquestra a lógica de roteirização, chamando as estratégias de clusterização e roteirização em intervalos definidos.
--   **`strategies.py`**: Define as interfaces abstratas (`ClusteringStrategy`, `RoutingStrategy`) e implementa as classes concretas que encapsulam os diferentes algoritmos. Por exemplo, `CKMeansClustering` e `BRKGARouting`.
+-   **`system.py`**: O coração do simulador. A classe `System` gerencia a fila de eventos (usando `heapq`), o tempo da simulação, o estado dos pedidos e veículos. Ela orquestra a lógica de roteirização, chamando as estratégias de otimização escolhidas.
+-   **`strategies.py`**: Define as interfaces abstratas (`ClusteringStrategy`, `RoutingStrategy`, `HybridStrategy`) e implementa as classes concretas que encapsulam os diferentes algoritmos.
 -   **`factory.py`**: Implementa a função `get_strategies`, que atua como uma fábrica para criar e retornar as instâncias das estratégias corretas com base na configuração da simulação (`SimulationConfig`).
--   **`config.py`**: Centraliza as configurações da simulação. Define `Enums` para os algoritmos disponíveis (`ClusteringAlgorithm`, `RoutingAlgorithm`) e um `dataclass` (`SimulationConfig`) para manter a configuração atual.
+-   **`config.py`**: Centraliza as configurações da simulação. Define `Enums` para os algoritmos disponíveis (`ClusteringAlgorithm`, `RoutingAlgorithm`, `HybridAlgorithm`) e um `dataclass` (`SimulationConfig`) para manter a configuração atual.
 -   **`structures.py`**: Contém as estruturas de dados fundamentais do projeto, como `Delivery`, `Vehicle`, `Point` e `Event`, definidas como `dataclasses` para clareza e robustez.
--   **`helpers.py`**: Fornece funções utilitárias, principalmente `evaluate_sequence`, que é a função de avaliação (fitness) usada pelos algoritmos de roteirização para calcular a qualidade de uma rota (penalidades e tempo). Também contém funções para conversão entre `datetime` e minutos.
--   **`distances.py`**: Funções para calcular matrizes de distância e tempo entre pontos geográficos, abstraindo os cálculos de geometria.
--   **`monitor.py`**: Uma classe `dataclass` simples para coletar e exibir métricas de desempenho da simulação, como total de entregas, penalidades e tempo em rota.
+-   **`helpers.py`**: Fornece funções utilitárias, principalmente `evaluate_sequence`, que é a função de avaliação (fitness) usada pelos algoritmos de roteirização para calcular a qualidade de uma rota (penalidades e tempo).
+-   **`distances.py`**: Funções para calcular matrizes de distância e tempo entre pontos geográficos.
+-   **`monitor.py`**: Classe para coletar e exibir métricas de desempenho da simulação.
 -   **Algoritmos**:
-    -   `clustering/ckmeans.py`: Implementa o K-Means com restrição de capacidade, usando programação inteira mista (MIP) para a etapa de atribuição.
-    -   `heuristics/greedy_clustering.py`: Uma heurística gulosa que ordena as entregas por distância e as atribui sequencialmente aos veículos.
-    -   `metaheuristics/brkga.py`: Implementa a meta-heurística BRKGA (Biased Random-Key Genetic Algorithm) para resolver o problema de roteirização, incluindo operadores de busca local como 2-Opt e Or-Opt.
-    -   `heuristics/greedy_routing.py`: Implementa a heurística de "Inserção Mais Barata" para construir uma rota de forma gulosa.
+    -   `clustering/ckmeans.py`: K-Means com restrição de capacidade via Programação Inteira Mista (MIP).
+    -   `heuristics/greedy_clustering.py`: Heurística gulosa sequencial para clusterização.
+    -   `metaheuristics/brkga.py`: Meta-heurística BRKGA para roteirização.
+    -   `heuristics/greedy_routing.py`: Heurística de "Inserção Mais Barata" para roteirização de um cluster.
+    -   `heuristics/greedy_hybrid.py`: Heurística de "Inserção Gulosa Global" que combina clusterização e roteirização.
 
 ## 3. Explicação Detalhada do Código
 
@@ -65,21 +69,32 @@ graph TD
 
 A classe `System` é o ponto central.
 
--   **`__init__(...)`**: Inicializa o sistema com uma configuração, uma lista de veículos, a localização do depósito e configurações de buffer. Utiliza a `factory.get_strategies` para instanciar as estratégias de otimização escolhidas.
--   **`run_simulation(...)`**: O loop principal da simulação. Avança o tempo minuto a minuto, processa novos pedidos, executa a lógica de roteirização e processa eventos da fila.
--   **`process_events_due()`**: Processa todos os eventos da fila (`event_queue`) cujo timestamp é menor ou igual ao tempo atual da simulação. Cada tipo de evento (`EventType`) tem um método handler correspondente (ex: `_handle_order_ready`).
 -   **`routing_decision_logic()`**: Esta é a função que decide quando e como otimizar as rotas.
     1.  Coleta os pedidos prontos (`OrderStatus.READY`) e os veículos disponíveis (`VehicleStatus.IDLE`).
-    2.  Chama a estratégia de clusterização (`self.clustering_strategy.cluster(...)`) para agrupar os pedidos por veículo.
-    3.  Chama a estratégia de roteirização (`self.routing_strategy.generate_routes(...)`) para encontrar a melhor sequência de visitas para cada cluster.
-    4.  Aplica uma política de despacho (ASAP ou JIT) e atualiza o estado do sistema: marca veículos como `ON_ROUTE`, pedidos como `DISPATCHED` e agenda novos eventos (`VEHICLE_RETURN`, `EXPECTED_DELIVERY`).
--   **`_calculate_delayed_dispatch(...)`**: Implementa a lógica "Just-in-Time" (JIT). Calcula a folga de tempo em uma rota (diferença entre o prazo de entrega e a chegada prevista) e atrasa o início da rota para potencialmente consolidar mais pedidos futuros, sem gerar atrasos.
+    2.  Verifica se uma estratégia híbrida está configurada. Se sim, chama `self.hybrid_strategy.generate_solution(...)` para obter a solução completa (atribuição e rotas) em uma única etapa.
+    3.  Caso contrário, executa a abordagem de duas etapas: primeiro chama a estratégia de clusterização (`self.clustering_strategy.cluster(...)`) e depois a de roteirização (`self.routing_strategy.generate_routes(...)`).
+    4.  Aplica uma política de despacho (ASAP ou JIT) e atualiza o estado do sistema.
 
 ### `strategies.py` e `factory.py` - Padrão Strategy
 
--   `ClusteringStrategy` e `RoutingStrategy` são classes base abstratas que definem a interface para os algoritmos. Isso garante que o `System` possa interagir com qualquer algoritmo da mesma maneira.
--   As classes concretas (`CKMeansClustering`, `BRKGARouting`, etc.) implementam a lógica específica de cada algoritmo, atuando como adaptadores entre a entrada genérica do sistema e a chamada da função do algoritmo.
--   A função `get_strategies` em `factory.py` desacopla o `System` da criação das instâncias de estratégia, tornando o código mais limpo e fácil de estender com novos algoritmos.
+-   `ClusteringStrategy`, `RoutingStrategy` e `HybridStrategy` são classes base abstratas que definem as interfaces para os algoritmos.
+-   As classes concretas (`CKMeansClustering`, `GreedyHybrid`, etc.) implementam a lógica específica de cada algoritmo.
+-   A função `get_strategies` em `factory.py` desacopla o `System` da criação das instâncias de estratégia.
+
+### `heuristics/greedy_hybrid.py` - Heurística de Inserção Gulosa Global (Greedy Insertion)
+
+Este módulo implementa a `GreedyHybridStrategy`, uma abordagem que combina clusterização e roteirização em uma única fase. Diferente das estratégias de duas etapas, ela não separa os problemas, tomando decisões de forma global.
+
+-   **`generate_solution(...)`**:
+    1.  **Inicialização**: Começa com todos os veículos vazios e uma lista de todos os pedidos prontos para serem alocados.
+    2.  **Loop de Inserção Gulosa**: O algoritmo entra em um loop que continua até que todos os pedidos tenham sido atribuídos ou não haja mais inserções válidas.
+        -   **Busca Global pela Melhor Inserção**: Em cada iteração do loop, o algoritmo realiza uma busca exaustiva. Ele testa a inserção de **cada** pedido não alocado em **cada** posição possível de **cada** rota de **cada** veículo.
+        -   **Cálculo de Custo**: Para cada inserção potencial, ele utiliza a função `evaluate_sequence` para calcular o custo total da nova rota (principalmente a penalidade por atraso). O "custo de inserção" é a diferença entre o custo da nova rota e o custo da rota original.
+        -   **Seleção Gulosa**: Após testar todas as combinações, o algoritmo identifica a inserção que resultou no **menor aumento de custo (ou maior redução)** em todo o sistema. Esta é a decisão "gulosa".
+    3.  **Aplicação da Melhor Inserção**: O pedido é inserido na rota do veículo e na posição que garantiram o menor custo. A capacidade do veículo é atualizada e o pedido é removido da lista de não alocados.
+    4.  **Repetição**: O loop recomeça, buscando a próxima melhor inserção global entre os pedidos restantes. Se nenhuma inserção for possível (ex: por falta de capacidade), o algoritmo termina.
+
+Essa estratégia é "híbrida" porque, ao decidir onde inserir um pedido, ela está simultaneamente escolhendo um cluster (o veículo) e uma posição na rota (roteirização), baseando-se em uma métrica de custo global.
 
 ### `metaheuristics/brkga.py` - Otimização Avançada
 
@@ -126,51 +141,39 @@ Implementa uma heurística de clusterização simples e rápida, baseada em uma 
 
 ## 4. Casos de Uso / Exemplos
 
-O principal caso de uso é a execução de uma simulação. Isso é feito externamente ao módulo `service`, mas a interação se daria da seguinte forma:
+O principal caso de uso é a execução de uma simulação.
 
 ```python
-# Exemplo de como o sistema seria configurado e executado
-from datetime import datetime, timedelta
+# Exemplo de como o sistema seria configurado e executado com a abordagem tradicional
+from datetime import datetime
 import numpy as np
 
 from service.system import System
 from service.config import SimulationConfig, ClusteringAlgorithm, RoutingAlgorithm
-from service.structures import Vehicle, Delivery, Point
+from service.structures import Vehicle
 
-# 1. Definir a configuração da simulação
 config = SimulationConfig(
     clustering_algo=ClusteringAlgorithm.CKMEANS,
     routing_algo=RoutingAlgorithm.BRKGA
 )
+# ... (resto do setup)
+```
 
-# 2. Criar veículos e definir o depósito
-vehicles = [Vehicle(id=1, capacity=100), Vehicle(id=2, capacity=100)]
-depot = np.array([-23.55, -46.63]) # Ex: São Paulo
+```python
+# Exemplo de como o sistema seria configurado e executado com uma estratégia HÍBRIDA
+from datetime import datetime
+import numpy as np
 
-# 3. Instanciar o sistema
-system = System(config=config, vehicles=vehicles, depot_origin=depot)
+from service.system import System
+from service.config import SimulationConfig, HybridAlgorithm
+from service.structures import Vehicle
 
-# 4. Definir o cronograma de chegada de pedidos
-start_time = datetime(2024, 1, 1, 8, 0)
-end_time = datetime(2024, 1, 1, 18, 0)
-
-# Pedidos que chegarão às 8:05
-delivery1 = Delivery(id="d1", point=Point(lat=-23.56, lng=-46.64), size=10, preparation=5, time=30, timestamp=int(start_time.timestamp()))
-delivery2 = Delivery(id="d2", point=Point(lat=-23.54, lng=-46.65), size=15, preparation=10, time=40, timestamp=int(start_time.timestamp()))
-
-incoming_deliveries = {
-    start_time + timedelta(minutes=5): [delivery1, delivery2]
-}
-
-# 5. Executar a simulação
-monitor_results = system.run_simulation(
-    start_time=start_time,
-    end_time=end_time,
-    incoming_deliveries_schedule=incoming_deliveries
+# 1. Definir a configuração da simulação para usar a estratégia híbrida
+config = SimulationConfig(
+    hybrid_algo=HybridAlgorithm.GREEDY_INSERTION
 )
 
-# 6. Analisar os resultados
-monitor_results.display()
+# ... (resto do setup igual ao exemplo anterior)
 ```
 
 ## 5. Instruções de Instalação e Execução
