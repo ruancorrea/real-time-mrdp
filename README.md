@@ -4,7 +4,7 @@
 
 Este projeto implementa um sistema de simulação para otimização de rotas de entrega em tempo real, projetado para resolver o Problema de Roteamento de Entregas de Refeições em Tempo Real (do inglês, *Real-Time Meal Delivery Routing Problem* - RTMRDP). O núcleo do sistema, localizado no diretório `service`, é responsável por receber pedidos de entrega, agrupá-los (clusterização), definir as melhores rotas para uma frota de veículos (roteirização) e simular o processo de despacho e entrega.
 
-O objetivo principal é minimizar os custos operacionais, que são representados por uma combinação de tempo total de rota e penalidades por atraso na entrega. O sistema é flexível, permitindo a seleção de diferentes algoritmos de clusterização e roteirização através de um arquivo de configuração, facilitando a comparação de estratégias. Além das abordagens em duas etapas (clusterização e depois roteirização), o sistema também suporta **estratégias híbridas** que resolvem ambos os problemas simultaneamente.
+O objetivo principal é minimizar as penalidades por atraso na entrega, um fator crítico para a satisfação do cliente. Custos operacionais, como o tempo total de rota, também são considerados, mas a prioridade é garantir que as entregas cheguem no horário. O sistema é flexível, permitindo a seleção de diferentes algoritmos de clusterização e roteirização através de um arquivo de configuração, facilitando a comparação de estratégias. Além das abordagens em duas etapas (clusterização e depois roteirização), o sistema também suporta **estratégias híbridas** que resolvem ambos os problemas simultaneamente.
 
 ## 2. Arquitetura e Componentes
 
