@@ -42,14 +42,17 @@ class System:
 
 
     def add_new_delivery(self, delivery: Delivery):
-        '''Adiciona uma nova entrega e seus eventos iniciais ao sistema.'''
+        """
+        Adds a new delivery to the system and schedules its corresponding events.
+        The routing logic is NOT triggered here.
+        """
         self.active_deliveries[delivery.id] = delivery
-        print(f'[{delivery.timestamp_dt.strftime('%H:%M')}] Nova Entrega Recebida: id={delivery.id}')
+        print(f'[{delivery.timestamp_dt.strftime("%H:%M")}] New Delivery Received: id={delivery.id}')
 
-        # Agenda os eventos usando os campos _dt da classe Delivery
+        # Schedule events using the _dt fields from the Delivery class
         self._schedule_event(EventType.ORDER_CREATED, delivery.timestamp_dt, delivery.id)
         self._schedule_event(EventType.ORDER_READY, delivery.preparation_dt, delivery.id)
-        self._schedule_event(EventType.PICKUP_DEADLINE, delivery.time_dt, delivery.id) # time_dt é o deadline
+        self._schedule_event(EventType.PICKUP_DEADLINE, delivery.time_dt, delivery.id) # time_dt is the deadline
         self.monitor.total_deliveries_created += 1
 
     def _schedule_event(self, event_type, timestamp, delivery_id):
@@ -58,12 +61,14 @@ class System:
         return event
 
     def process_events_due(self):
+        processed_events = []
         while self.event_queue and self.event_queue[0].timestamp <= self.simulation_time:
             event = heapq.heappop(self.event_queue)
             if event.event_type == EventType.VEHICLE_RETURN:
                 vehicle = self.vehicles.get(event.delivery_id)
                 if vehicle:
-                    self._handle_vehicle_return(event, vehicle)
+                    return_event = self._handle_vehicle_return(event, vehicle)
+                    processed_events.append(return_event)
                 continue # Pula para o próximo evento
 
             delivery = self.active_deliveries.get(event.delivery_id)
@@ -73,7 +78,10 @@ class System:
 
             handler = getattr(self, f'_handle_{event.event_type.name.lower()}', None)
             if handler:
-                handler(event, delivery)
+                processed_event = handler(event, delivery)
+                if processed_event:
+                    processed_events.append(processed_event)
+        return processed_events
 
      # --- Handlers de Eventos (usando 'delivery' em vez de 'order') ---
 
@@ -104,12 +112,28 @@ class System:
         vehicle.status = VehicleStatus.IDLE
         vehicle.current_route = []
         vehicle.route_end_time = None
+        
+        return {
+            "type": "driver_returned",
+            "data": {
+                "vehicle_id": vehicle.id,
+                "return_time": self.simulation_time.isoformat()
+            }
+        }
 
     def _handle_expected_delivery(self, event, delivery):
         # Removemos a lógica de liberar o veículo daqui, pois agora é um evento separado.
         print(f"[{self.simulation_time.strftime('%H:%M')}] ENTREGA: Pedido {delivery.id} entregue.")
         delivery.status = OrderStatus.DELIVERED
         self.monitor.total_deliveries_completed += 1
+        return {
+            "type": "delivery_completed",
+            "data": {
+                "delivery_id": delivery.id,
+                "completion_time": self.simulation_time.isoformat(),
+                "delivery": delivery.to_dict()
+            }
+        }
 
 
     def _calculate_delayed_dispatch(self, asap_eval_dt: dict, node_map: dict, slack_usage_ratio: float = 0.5):
@@ -172,24 +196,33 @@ class System:
         Orquestra a clusterização e roteirização para pedidos prontos.
         Delega a lógica para as estratégias configuradas.
         '''
-        # 1. GATHER DATA: Coletar pedidos e veículos elegíveis
-        ready_deliveries = [d for d in self.active_deliveries.values() if d.status == OrderStatus.READY]
-        available_vehicles = [v for v in self.vehicles.values() if v.status == VehicleStatus.IDLE]
+        # All datetime operations should use timezone-aware objects.
+        # If simulation_time is present, it's already aware (from API or dev script).
+        # If not, we default to the current time in UTC.
+        current_time = self.simulation_time or datetime.now(timezone.utc)
 
-        if not ready_deliveries or not available_vehicles:
-            return
+        # 1. GATHER DATA: Coletar pedidos e veículos elegíveis
+        eligible_deliveries = [
+            d for d in self.active_deliveries.values() 
+            if d.status in [OrderStatus.READY, OrderStatus.PENDING]
+        ]
+        available_vehicles = [v for v in self.vehicles.values() if v.status == VehicleStatus.IDLE]
+        dispatched_events = []
+
+        if not eligible_deliveries or not available_vehicles:
+            return dispatched_events
 
         urgent_orders = [
-            d for d in ready_deliveries
-            if d.time_dt - self.simulation_time < timedelta(minutes=10) # Ex: prazo em menos de 15 min
+            d for d in eligible_deliveries
+            if d.time_dt - current_time < timedelta(minutes=10) # Ex: prazo em menos de 15 min
         ]
 
         use_jit_policy = True
-        if len(ready_deliveries) > 5 or len(urgent_orders) > 0:
-            print(f"[{self.simulation_time.strftime('%H:%M')}] MODO DE URGÊNCIA ATIVADO. Despachando ASAP.")
+        if len(eligible_deliveries) > 5 or len(urgent_orders) > 0:
+            print(f"[{current_time.strftime('%H:%M')}] MODO DE URGÊNCIA ATIVADO. Despachando ASAP.")
             use_jit_policy = False
 
-        print(f"[{self.simulation_time.strftime('%H:%M')}] Lógica de Roteamento: {len(ready_deliveries)} pedidos prontos e {len(available_vehicles)} veículos disponíveis.")
+        print(f"[{current_time.strftime('%H:%M')}] Lógica de Roteamento: {len(eligible_deliveries)} pedidos prontos e {len(available_vehicles)} veículos disponíveis.")
 
         asap_routes_details = {}
         deliveries_by_vehicle = {}
@@ -197,7 +230,7 @@ class System:
         if self.hybrid_strategy:
             # Abordagem Híbrida (Etapa Única)
             asap_routes_details = self.hybrid_strategy.generate_solution(
-                ready_deliveries, available_vehicles, self.depot_origin, self.avg_speed_kmh
+                eligible_deliveries, available_vehicles, self.depot_origin, self.avg_speed_kmh
             )
             # Para a lógica JIT, precisamos reconstruir o 'deliveries_by_vehicle'
             # a partir dos resultados da rota.
@@ -207,7 +240,7 @@ class System:
             # Abordagem de Duas Etapas
             # 2. STAGE 1: CLUSTERING
             deliveries_by_vehicle = self.clustering_strategy.cluster(
-                ready_deliveries, available_vehicles, self.depot_origin
+                eligible_deliveries, available_vehicles, self.depot_origin
             )
             # 3. STAGE 2: ROUTING
             asap_routes_details = self.routing_strategy.generate_routes(
@@ -241,6 +274,12 @@ class System:
             vehicle.status = VehicleStatus.ON_ROUTE
             vehicle.route_end_time = jit_eval_dt['return_depot']
             vehicle.current_route = [node_map[node_idx].id for node_idx in seq]
+            dispatched_events.append({
+                "vehicle_id": vehicle.id,
+                "route": [node_map[node_idx].to_dict() for node_idx in seq],
+                "dispatch_time": jit_eval_dt['start_datetime'].isoformat(),
+                "return_time": jit_eval_dt['return_depot'].isoformat(),
+            })
 
             return_event = Event(EventType.VEHICLE_RETURN, vehicle.route_end_time, vehicle.id)
             heapq.heappush(self.event_queue, return_event)
@@ -258,6 +297,7 @@ class System:
                 self._schedule_event(EventType.EXPECTED_DELIVERY, expected_delivery_time, delivery.id)
 
                 print(f"    - Pedido {delivery.id} despachado. Entrega esperada: {expected_delivery_time.strftime('%H:%M')}")
+        return dispatched_events
 
     def run_simulation(self, start_time, end_time, incoming_deliveries_schedule):
         self.simulation_time = start_time

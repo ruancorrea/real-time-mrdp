@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 import numpy as np
 from collections import defaultdict
-from service.structures import Delivery, Vehicle
+from service.structures import Delivery, Vehicle, Point
 from service.distances import get_distance_matrix, get_time_matrix
 
 class ClusteringStrategy(ABC):
@@ -122,7 +122,8 @@ class BRKGARouting(RoutingStrategy):
             print(f"  -> Roteirizando para Veículo {vehicle_id} com {len(deliveries)} pedidos.")
             node_map = {i: d for i, d in enumerate(deliveries)}
             node_ids = list(node_map.keys())
-
+            if isinstance(depot_origin, Point):
+                depot_origin = np.array([depot_origin.lng, depot_origin.lat])
             cluster_points = np.array(
                 [depot_origin.tolist()] + [[d.point.lng, d.point.lat] 
                 for d in deliveries]
@@ -172,6 +173,7 @@ class GreedyRouting(RoutingStrategy):
 # --- HYBRID ---
 
 from service.heuristics.greedy_hybrid import GreedyHybridStrategy as GreedyHybridHeuristic
+from service.metaheuristics.brkga_hybrid import apply_hybrid_brkga
 
 class GreedyHybrid(HybridStrategy):
     def generate_solution(
@@ -184,3 +186,14 @@ class GreedyHybrid(HybridStrategy):
         print("  -> Usando Estratégia Híbrida: Greedy Insertion")
         solver = GreedyHybridHeuristic()
         return solver.generate_solution(deliveries, vehicles, depot_origin, avg_speed_kmh)
+
+class BRKGAHybrid(HybridStrategy):
+    def generate_solution(
+        self,
+        deliveries: List[Delivery],
+        vehicles: List[Vehicle],
+        depot_origin: np.array,
+        avg_speed_kmh: int
+    ) -> Dict[int, Dict[str, Any]]:
+        print("  -> Usando Estratégia Híbrida: BRKGA com Inserção Gulosa")
+        return apply_hybrid_brkga(deliveries, vehicles, depot_origin, avg_speed_kmh)

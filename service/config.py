@@ -13,6 +13,8 @@ class RoutingAlgorithm(Enum):
 
 class HybridAlgorithm(Enum):
     GREEDY_INSERTION = "greedy_insertion"
+    BRKGA_HYBRID = "brkga_hybrid"
+    MANUAL = "manual"
 
 @dataclass
 class SimulationConfig:

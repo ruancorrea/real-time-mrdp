@@ -7,7 +7,7 @@ from typing import (
 from dacite import from_dict
 import json
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from service.enums import OrderStatus, EventType, VehicleStatus
 
@@ -60,11 +60,13 @@ class Delivery:
 
     status: OrderStatus = field(default=OrderStatus.PENDING, compare=False, hash=False)
     dispatch_event_id: Optional[int] = field(default=None, compare=False, hash=False)
+    assigned_vehicle_id: Optional[int] = field(default=None, compare=False, hash=False)
 
     def __post_init__(self):
         '''Calcula os campos datetime se eles não forem fornecidos.'''
         if self.timestamp_dt is None and self.timestamp is not None:
-            self.timestamp_dt = datetime.fromtimestamp(self.timestamp)
+            # Create a UTC-aware datetime from the Unix timestamp
+            self.timestamp_dt = datetime.fromtimestamp(self.timestamp, tz=timezone.utc)
 
         # Lógica crucial: calcular os datetimes a partir das durações
         if self.timestamp_dt and self.preparation_dt is None:
@@ -73,6 +75,18 @@ class Delivery:
         if self.preparation_dt and self.time_dt is None:
             # 'time' representa o tempo limite APÓS o pedido ficar pronto
             self.time_dt = self.preparation_dt + timedelta(minutes=self.time)
+
+    def to_dict(self):
+        """Converts the delivery object to a dictionary, handling datetimes."""
+        data = asdict(self)
+        for key, value in data.items():
+            if isinstance(value, datetime):
+                data[key] = value.isoformat() if value else None
+            elif isinstance(value, Point):
+                data[key] = asdict(value)
+            elif isinstance(value, OrderStatus):
+                data[key] = value.value
+        return data
 
 @dataclass
 class CVRPInstance(JSONDataclassMixin):
@@ -133,13 +147,6 @@ class Vehicle:
 _event_counter = 0
 def get_next_event_id():
     global _event_counter; _event_counter += 1; return _event_counter
-
-@dataclass
-class Event:
-    id: str
-    timestamp_dt: datetime
-    delivery: Delivery
-    state: str = 'created'
 
 class Event:
     def __init__(self, event_type: EventType, timestamp: datetime, delivery_id: str):

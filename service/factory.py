@@ -11,7 +11,9 @@ from service.strategies import (
     BRKGARouting,
     GreedyRouting,
     GreedyHybrid,
+    BRKGAHybrid,
 )
+from service.heuristics.manual_assignment import ManualAssignmentStrategy
 
 def get_strategies(config: SimulationConfig):
     '''Fábrica que retorna as instâncias de estratégia com base na config.'''
@@ -20,6 +22,8 @@ def get_strategies(config: SimulationConfig):
     if config.hybrid_algo:
         hybrid_strategy_map = {
             HybridAlgorithm.GREEDY_INSERTION: GreedyHybrid,
+            HybridAlgorithm.BRKGA_HYBRID: BRKGAHybrid,
+            HybridAlgorithm.MANUAL: ManualAssignmentStrategy,
         }
         return None, None, hybrid_strategy_map[config.hybrid_algo]()
 

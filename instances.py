@@ -26,7 +26,7 @@ def loadingPoints(instances):
 
   return points
 
-def get_instances(path):
+def get_instances(path, number_instance=0):
     paths = ["/al-0", "/al-1", "/al-2"]
     origins = []
     points = []
@@ -35,8 +35,8 @@ def get_instances(path):
       path_config = path + p
       print(path)
       train_instances = loadingData(path_config)
-      instances.append(train_instances[0])
-      origins.append(train_instances[0].origin)
+      instances.append(train_instances[number_instance])
+      origins.append(train_instances[number_instance].origin)
       #points.extend(loadingPoints(train_instances))
     #points = np.array(points)
 

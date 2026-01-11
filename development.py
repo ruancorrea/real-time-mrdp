@@ -31,12 +31,13 @@ if __name__ == "__main__":
     data_base: str = '01/01/2025'
     hours: int = 18
     minutes: int = 0
-    instances = Instances.get_instances(path_eval)
+    number_instance = 2
+    instances = Instances.get_instances(path_eval, number_instance=number_instance)
     all_deliveries_by_time = Instances.process_instances(instances[:1], data_base, hours, minutes, tzinfo=SIMULATION_TZ)
     origin = np.array([-35.739118, -9.618276])
 
     simulation_start_time = Instances.get_initial_time(data_base, hours, minutes, tzinfo=SIMULATION_TZ)
-    simulation_end_time = simulation_start_time + timedelta(hours=1)
+    simulation_end_time = simulation_start_time + timedelta(hours=9)
     simulation_time = simulation_start_time
 
     print(f"Iniciando simulação de {simulation_start_time} até {simulation_end_time}")
@@ -53,12 +54,11 @@ if __name__ == "__main__":
        if delivery.timestamp_dt > simulation_end_time:
             break
        incoming_deliveries_schedule[delivery.timestamp_dt].append(delivery)
-
-    '''
     config = SimulationConfig(
         clustering_algo=ClusteringAlgorithm.CKMEANS,
         routing_algo=RoutingAlgorithm.BRKGA
     )
+    '''
     '''
 
     '''
@@ -68,7 +68,11 @@ if __name__ == "__main__":
     )
     '''
 
-    config = SimulationConfig(hybrid_algo=HybridAlgorithm.GREEDY_INSERTION)
+    #config = SimulationConfig(hybrid_algo=HybridAlgorithm.GREEDY_INSERTION)
+
+    #config = SimulationConfig(hybrid_algo=HybridAlgorithm.BRKGA_HYBRID)
+
+    config = SimulationConfig(hybrid_algo=HybridAlgorithm.MANUAL)
 
     # --- Execução ---
     system = System(

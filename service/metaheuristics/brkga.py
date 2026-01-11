@@ -6,7 +6,7 @@ from copy import deepcopy
 from service.distances import get_distance_matrix, get_time_matrix
 from datetime import datetime, timezone, timedelta
 try:
-    from zoneinfo import ZoneInfo  # Python 3.9+
+    from zoneinfo import ZoneInfo
 except Exception:
     ZoneInfo = None
 
@@ -19,21 +19,18 @@ from service.helpers import (
 # ---------------------------
 # Helpers para datetimes
 # ---------------------------
-DEFAULT_TZ_NAME = "America/Sao_Paulo"  # ajuste se quiser outra timezone
+DEFAULT_TZ_NAME = "America/Sao_Paulo"
 
 def to_timestamp_seconds(dt, assume_tz_name=DEFAULT_TZ_NAME):
-    """Converte datetime -> timestamp (float seconds since epoch).
+    '''Converte datetime -> timestamp (float seconds since epoch).
        Se dt.tzinfo é None (naive), assume assume_tz_name zona e converte para UTC timestamp.
        Retorna float segundos.
-    """
+    '''
     if dt is None:
         raise ValueError("datetime é None")
     if dt.tzinfo is not None:
         return dt.timestamp()
-    # naive datetime: assume local zone provided
     if ZoneInfo is None:
-        # fallback: assume naive datetimes are UTC (safer que crash)
-        # mas preferível instalar Python >=3.9 ou usar pytz
         return dt.replace(tzinfo=timezone.utc).timestamp()
     else:
         local_tz = ZoneInfo(assume_tz_name)
@@ -136,14 +133,14 @@ def or_opt(seq, k, evaluate_func):
     return best_seq, best_eval
 
 # ---------------------------
-# BRKGA principal (usa P_min e T_min)
+# BRKGA
 # ---------------------------
 def brkga_for_routing_with_depot(node_ids, travel_time,
                                  P_dt_map, T_dt_map,
                                  service_times=None, depot_index=None,
                                  assume_tz_name=DEFAULT_TZ_NAME,
-                                 pop_size=60, elite_frac=0.2, mutant_frac=0.1, bias=0.7,
-                                 max_gens=200, no_improve_limit=40):
+                                 pop_size=50, elite_frac=0.3, mutant_frac=0.15, bias=0.7,
+                                 max_gens=70, no_improve_limit=15):
     # convert datetimes to minutes
     P_min, T_min, ref_ts = datetimes_map_to_minutes(P_dt_map, T_dt_map, assume_tz_name=assume_tz_name)
     n = len(node_ids)
@@ -222,14 +219,14 @@ def apply(data: list, origin: np.array, average_speed_kmh: int=50):
     #points = np.array([[b.point.lat, b.point.lng] for b in data])
     points = [[b.point.lat, b.point.lng] for b in data]
     points = np.array([origin] + points)
-    weights = np.array([b.size for b in data])
+    #weights = np.array([b.size for b in data])
     #preparations = np.array([b.preparation_dt for b in data])
     preparations = {idx: b.preparation_dt for idx, b in enumerate(data)}
     #times = np.array([b.time_dt for b in data])
     times = {idx: b.time_dt for idx, b in enumerate(data)}
     distance_matrix = get_distance_matrix(points)
     travel_time = get_time_matrix(distance_matrix, average_speed_kmh=average_speed_kmh)
-    n_orders = len(data) 
+    n_orders = len(data)
     depot_index = len(data)
     service_times = {i: 2 for i in range(n_orders)}
     node_ids = list(range(n_orders))

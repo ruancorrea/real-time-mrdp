@@ -46,11 +46,24 @@ def datetimes_map_to_minutes(P_dt_map, T_dt_map, assume_tz_name=DEFAULT_TZ_NAME)
     return P_min, T_min, ref_ts
 
 def minutes_to_datetime(minutes, ref_ts, tz_name=DEFAULT_TZ_NAME):
+    """
+    Converts a time in minutes (relative to a reference timestamp) back to an aware datetime object.
+    """
     ts = ref_ts + minutes * 60.0
+    # Create an aware datetime in UTC from the timestamp first
+    utc_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+
+    # If zoneinfo is available, convert to the specific local timezone.
     if ZoneInfo:
-        return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(ZoneInfo(tz_name))
-    else:
-        return datetime.fromtimestamp(ts, tz=timezone.utc)
+        try:
+            target_tz = ZoneInfo(tz_name)
+            return utc_dt.astimezone(target_tz)
+        except Exception:
+            # Fallback to UTC if tz_name is invalid
+            return utc_dt
+    
+    # Fallback to UTC if zoneinfo is not available (Python < 3.9)
+    return utc_dt
 
 def compute_penalty_from_arrival(arrival, T, min_block=5.0, penalty_per_block=100):
     lateness = max(0.0, arrival - T)
